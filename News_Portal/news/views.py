@@ -1,5 +1,11 @@
+from django.core.paginator import Paginator
 from django.shortcuts import render, get_object_or_404
-from .models import Post
+from django.contrib.auth.mixins import PermissionRequiredMixin, LoginRequiredMixin
+from django.views.generic import ListView, DetailView, CreateView, UpdateView, DeleteView
+
+from .filters import PostFilter
+from .forms import NewsForm, ArticleForm
+from .models import Post, Category
 
 """
 get_object_or_404 - используется для получения объекта из базы данных по заданным условиям. 
@@ -7,17 +13,123 @@ get_object_or_404 - используется для получения объе�
 """
 
 
+# ====== Стартовая страница ============================================================================================
 def Start_Padge(request):
-    news = Post.objects.filter(type='NW').order_by('-creationDate')
-    return render(request, 'news/Start.html', {'news': news})
+    news = Post.objects.filter(type='NW').order_by('-creationDate')[:4]
+    return render(request, 'flatpages/Start.html', {'news': news})
+
+# ====== Новости =======================================================================================================
+class NewsList(ListView):
+    paginate_by = 10
+    model = Post
+    template_name = 'news/news_list.html'
+    context_object_name = 'news'
+
+    def get_queryset(self):
+        queryset = super().get_queryset().filter(type='NW')
+        return queryset.order_by('-creationDate')
 
 
-def news_list(request):
-    news = Post.objects.filter(type='NW').order_by('-creationDate')  # Фильтруем только новости
+class NewsDetail(DetailView):
+    model = Post
+    template_name = 'news/news_detail.html'
+    context_object_name = 'post'
+
+
+class NewsCreate(PermissionRequiredMixin, LoginRequiredMixin, CreateView):
+    permission_required = ('news.add_post',)
+    raise_exception = True
+    model = Post
+    form_class = NewsForm
+    template_name = 'news_create.html'
+    success_url = '/'
+
+    def form_valid(self, form):
+        post = form.save(commit=False)
+        post.type = 'NW'
+        post.author = self.request.user.author
+        post.save()
+        return super().form_valid(form)
+
+
+class NewsEdit(PermissionRequiredMixin, LoginRequiredMixin, UpdateView):
+    permission_required = ('news.change_post',)
+    raise_exception = True
+    model = Post
+    form_class = NewsForm
+    template_name = 'news_edit.html'
+    success_url = '/'
+
+
+class NewsDelete(PermissionRequiredMixin, LoginRequiredMixin, DeleteView):
+    permission_required = ('news.add_post',)
+    raise_exception = True
+    model = Post
+    template_name = 'news_delete.html'
+    success_url = '/'
+
+
+# ====== Статьи ========================================================================================================
+def article_list(request):
+    article = Post.objects.filter(type='AR').order_by('-creationDate')  # Фильтруем только статьи
     # и сортируем по убыванию даты
-    return render(request, 'news/news_list.html', {'news': news})
+    paginator = Paginator(article, 2)
+    page = request.GET.get('page')
+    articles = paginator.get_page(page)
+    return render(request, 'news/article_list.html', {'articles': articles})
 
 
-def news_detail(request, post_id):
+def article_detail(request, post_id):
     post = get_object_or_404(Post, pk=post_id)
-    return render(request, 'news/news_detail.html', {'post': post})
+    return render(request, 'news/article_detail.html', {'post': post})
+
+
+class ArticleCreate(PermissionRequiredMixin, LoginRequiredMixin, CreateView):
+    permission_required = ('news.add_post',)
+    raise_exception = True
+    model = Post
+    form_class = ArticleForm
+    template_name = 'article_create.html'
+    success_url = '/'
+
+    def form_valid(self, form):
+        post = form.save(commit=False)
+        post.type = 'AR'
+        post.author = self.request.user.author
+        post.save()
+        return super().form_valid(form)
+
+
+class ArticleEdit(PermissionRequiredMixin, LoginRequiredMixin, UpdateView):
+    raise_exception = True
+    model = Post
+    form_class = ArticleForm
+    template_name = 'article_edit.html'
+    success_url = '/'
+
+
+class ArticleDelete(PermissionRequiredMixin, LoginRequiredMixin, DeleteView):
+    raise_exception = True
+    model = Post
+    template_name = 'article_delete.html'
+    success_url = '/'
+
+
+# ====== Поиск =========================================================================================================
+class Search(ListView):
+    model = Post
+    template_name = 'flatpages/search.html'
+    context_object_name = 'search'
+    filterset_class = PostFilter
+    paginate_by = 7
+
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        self.filterset = self.filterset_class(self.request.GET, queryset=queryset)
+        return self.filterset.qs
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context['filter'] = self.filterset
+        context['categories'] = Category.objects.all()  # Получение всех категорий
+        return context
